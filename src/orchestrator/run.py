@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import yaml
+import logging
 
 from src.agents.data_agent import DataAgent
 from src.agents.planner_agent import PlannerAgent
@@ -12,13 +13,44 @@ CONFIG_PATH = Path("config/config.yaml")
 DATA_PATH = Path("data/sample.csv")
 OUT_DIR = Path("reports")
 LOG_DIR = Path("logs")
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def load_config(path=CONFIG_PATH):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
+
+def with_retry(name, func, *args, max_retries=3, **kwargs):
+    """
+    Generic retry wrapper.
+    - name: short label for logging ('data_load', 'add_metrics', etc.)
+    - func: function to call
+    - args/kwargs: arguments passed to the function
+    """
+    errors = []
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("Running %s (attempt %d/%d)", name, attempt, max_retries)
+            result = func(*args, **kwargs)
+            if attempt > 1:
+                from pathlib import Path
+            return result
+        except Exception as e:
+            err_str = str(e)
+            errors.append(err_str)
+            logger.error("Error in %s attempt %d: %s", name, attempt, err_str)
+            try:
+                from pathlib import Path
+
+                save_log(f"{name}_error_attempt_{attempt}", {"error": err_str})
+            except Exception:
+                pass
+
+            if attempt == max_retries:
+                save_log(f"{name}_failure", {"errors": errors})
+                raise   
 
 
 def save_log(name, data):
@@ -62,11 +94,13 @@ def main(task_text="Analyze ROAS drop"):
 
     
     data_agent = DataAgent(sample_frac=cfg.get("sample_frac", 0.2))
-    df = data_agent.load(DATA_PATH)
-    df = data_agent.add_metrics(df)
-    summary = data_agent.summarize(df)
 
+    df = with_retry("data_load", data_agent.load, DATA_PATH, max_retries=3)
+    df = with_retry("add_metrics", data_agent.add_metrics, df, max_retries=2)
+
+    summary = data_agent.summarize(df)
     save_log("data_summary", summary)
+
 
     
     planner = PlannerAgent(roas_drop_pct=cfg.get("roas_drop_pct", 20))
@@ -125,7 +159,6 @@ def main(task_text="Analyze ROAS drop"):
     def fmt(x, d=2):
         return "N/A" if x is None else f"{x:.{d}f}"
 
-    # FULL DETAILED REPORT
     report = f"""
 # Performance Analysis Report – Synthetic Facebook Ads (Undergarments)
 
