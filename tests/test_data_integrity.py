@@ -10,7 +10,6 @@ import pandas as pd
 
 from src.agents.data_agent import DataAgent
 
-
 def test_missing_required_columns_raises_value_error(tmp_path):
     df = pd.DataFrame(
         {
@@ -38,7 +37,6 @@ def test_missing_required_columns_raises_value_error(tmp_path):
         assert False, "Expected ValueError for missing required columns"
     except ValueError as e:
         assert "Missing required columns" in str(e)
-
 
 def test_add_metrics_handles_missing_values(tmp_path):
     df = pd.DataFrame(
